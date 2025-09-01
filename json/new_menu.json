@@ -1,0 +1,12 @@
+[
+    {
+      "menu_id": "pasta_001",
+      "menu_name": "크림 카르보나라",
+      "description": "부드러운 크림소스와 베이컨이 어우러진 파스타",
+      "category": "파스타",
+      "price": 15000,
+      "w_pop": 1.2,
+      "w_recency": 1.0,
+      "w_custom": 1.1
+    }
+  ]
