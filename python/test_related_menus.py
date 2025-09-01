@@ -49,13 +49,30 @@ def test_related_menus(menu_name: str, index_name: str = "menus"):
     
     # 연관메뉴 분류
     co_occurrence_items = [item for item in related_menus if item.get("similarity_type") == "co_occurrence"]
+    category_similarity_items = [item for item in related_menus if item.get("similarity_type") == "category_similarity"]
+    keyword_similarity_items = [item for item in related_menus if item.get("similarity_type") == "keyword_similarity"]
+    forced_similarity_items = [item for item in related_menus if item.get("similarity_type") == "forced_similarity"]
     embedding_items = [item for item in related_menus if item.get("similarity_type") == "embedding"]
     
     print(f"🔄 공동주문 기반: {len(co_occurrence_items)}개")
     for item in co_occurrence_items:
         print(f"   - {item['menu_name']} (점수: {item.get('co_occurrence_score', 'N/A')})")
     
-    print(f"🧠 임베딩 유사도 기반: {len(embedding_items)}개")
+    print(f"🍝 카테고리 유사도 기반: {len(category_similarity_items)}개")
+    for item in category_similarity_items:
+        bonus_info = f" (보너스: {item.get('keyword_bonus', 1.0)}x)" if item.get('keyword_bonus', 1.0) > 1.0 else ""
+        print(f"   - {item['menu_name']} (유사도: {item.get('embedding_similarity', 'N/A')}{bonus_info})")
+    
+    print(f"🔍 키워드 유사도 기반: {len(keyword_similarity_items)}개")
+    for item in keyword_similarity_items:
+        bonus_info = f" (보너스: {item.get('keyword_bonus', 1.0)}x)" if item.get('keyword_bonus', 1.0) > 1.0 else ""
+        print(f"   - {item['menu_name']} (유사도: {item.get('embedding_similarity', 'N/A')}{bonus_info})")
+    
+    print(f"💪 강제 유사도 기반: {len(forced_similarity_items)}개")
+    for item in forced_similarity_items:
+        print(f"   - {item['menu_name']} (유사도: {item.get('embedding_similarity', 'N/A')}, 카테고리: {item.get('category', 'N/A')})")
+    
+    print(f"🧠 일반 임베딩 유사도 기반: {len(embedding_items)}개")
     for item in embedding_items:
         print(f"   - {item['menu_name']} (유사도: {item.get('embedding_similarity', 'N/A')}, 카테고리: {item.get('category', 'N/A')})")
 

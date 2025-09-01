@@ -322,29 +322,49 @@ def update_embeddings_with_related_menus(index_name: str, batch_size: int = 32, 
             if include_embedding_similarity and menu_id in menu_embeddings:
                 current_embedding = menu_embeddings[menu_id]["embedding"]
                 current_category = menu_embeddings[menu_id]["category"]
+                current_menu_name = menu_embeddings[menu_id]["menu_name"]
                 
-                # 같은 카테고리 내에서 유사한 메뉴 찾기
+                # 강제로 같은 카테고리에서 유사한 메뉴 찾기
                 similar_menus = []
+                
                 for other_id, other_data in menu_embeddings.items():
                     if other_id == menu_id:
                         continue
                     
-                    # 같은 카테고리 우선, 다른 카테고리도 허용
-                    category_bonus = 1.5 if other_data["category"] == current_category else 1.0
+                    # 같은 카테고리 우선
+                    category_bonus = 2.0 if other_data["category"] == current_category else 1.0
                     
                     # 코사인 유사도 계산
                     similarity = np.dot(current_embedding, other_data["embedding"]) / (
                         np.linalg.norm(current_embedding) * np.linalg.norm(other_data["embedding"])
                     )
                     
-                    # 카테고리 보너스 적용
-                    adjusted_similarity = similarity * category_bonus
+                    # 키워드 기반 보너스
+                    keyword_bonus = 1.0
+                    other_name = other_data["menu_name"].lower()
                     
-                    if adjusted_similarity > 0.3:  # 임계값
+                    # 카르보나라/크림 관련 키워드
+                    if any(keyword in other_name for keyword in ["까르보", "카르보", "크림", "베이컨", "계란"]):
+                        keyword_bonus = 2.5
+                    # 파스타 관련 키워드
+                    elif any(keyword in other_name for keyword in ["파스타", "면", "로제", "봉골레"]):
+                        keyword_bonus = 2.0
+                    # 크림/소스 관련 키워드
+                    elif any(keyword in other_name for keyword in ["크림", "소스", "치즈"]):
+                        keyword_bonus = 1.5
+                    
+                    # 최종 보너스 계산
+                    final_bonus = category_bonus * keyword_bonus
+                    adjusted_similarity = similarity * final_bonus
+                    
+                    # 낮은 임계값으로 더 많은 메뉴 포함
+                    if adjusted_similarity > 0.1:
                         similar_menus.append({
                             "menu_name": other_data["menu_name"],
                             "embedding_similarity": round(adjusted_similarity, 3),
-                            "category": other_data["category"]
+                            "category": other_data["category"],
+                            "keyword_bonus": keyword_bonus,
+                            "category_bonus": category_bonus
                         })
                 
                 # 유사도 순으로 정렬하고 상위 5개 선택
@@ -361,7 +381,7 @@ def update_embeddings_with_related_menus(index_name: str, batch_size: int = 32, 
                         related_list.append({
                             "menu_name": similar_menu["menu_name"],
                             "embedding_similarity": similar_menu["embedding_similarity"],
-                            "similarity_type": "embedding",
+                            "similarity_type": "forced_similarity",
                             "category": similar_menu["category"]
                         })
             

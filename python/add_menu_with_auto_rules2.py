@@ -175,60 +175,113 @@ def add_new_menu_with_auto_rules(
                 "co_occurrence_score": round(score, 3)
             })
 
-    # ✅ 6. 공동주문 데이터가 없으면 → 임베딩 기반 유사 메뉴 찾기
+    # ✅ 6. 공동주문 데이터가 없으면 → 강제로 연관메뉴 생성
     if not related_list:
-        print("📌 공동주문 데이터 없음 → 임베딩 유사도 기반 연관메뉴 생성")
+        print("📌 공동주문 데이터 없음 → 강제 연관메뉴 생성")
         
-        # 임베딩 유사도 기반으로 유사한 메뉴들 찾기
+        # 모든 메뉴에서 연관메뉴 찾기
         resp = client.search(
             index=index_name,
             body={
-                "size": 10,  # 더 많은 후보 검색
+                "size": 50,  # 더 많은 메뉴 검색
                 "query": {
-                    "knn": {
-                        "embedding": {
-                            "vector": embedding,
-                            "k": 10
-                        }
+                    "bool": {
+                        "must_not": [
+                            {"term": {"menu_name": menu_name}}  # 본인 제외
+                        ]
                     }
                 },
-                "_source": ["menu_name", "category", "embedding"]
+                "_source": ["menu_name", "category", "embedding", "description"]
             }
         )
         
+        similar_menus = []
+        
         if resp["hits"]["hits"]:
-            # 코사인 유사도 계산
             current_embedding = np.array(embedding)
-            similar_menus = []
             
             for hit in resp["hits"]["hits"]:
                 other_menu = hit["_source"]
                 other_embedding = np.array(other_menu["embedding"])
+                
+                if len(other_embedding) == 0:
+                    continue
                 
                 # 코사인 유사도 계산
                 similarity = np.dot(current_embedding, other_embedding) / (
                     np.linalg.norm(current_embedding) * np.linalg.norm(other_embedding)
                 )
                 
-                # 카테고리 보너스 (같은 카테고리 우선)
-                category_bonus = 1.5 if other_menu.get("category") == category else 1.0
-                adjusted_similarity = similarity * category_bonus
+                # 카테고리 보너스
+                category_bonus = 2.0 if other_menu.get("category") == category else 1.0
                 
-                if adjusted_similarity > 0.3:  # 임계값
+                # 키워드 보너스
+                keyword_bonus = 1.0
+                other_name = other_menu["menu_name"].lower()
+                other_desc = other_menu.get("description", "").lower()
+                
+                # 카테고리별 키워드 보너스
+                if category == "파스타":
+                    if any(keyword in other_name or keyword in other_desc 
+                           for keyword in ["까르보", "카르보", "크림", "베이컨", "계란"]):
+                        keyword_bonus = 2.5
+                    elif any(keyword in other_name or keyword in other_desc 
+                            for keyword in ["파스타", "면", "로제", "봉골레"]):
+                        keyword_bonus = 2.0
+                elif category == "치킨":
+                    if any(keyword in other_name or keyword in other_desc 
+                           for keyword in ["치킨", "닭", "튀김"]):
+                        keyword_bonus = 2.0
+                elif category == "음료":
+                    if any(keyword in other_name or keyword in other_desc 
+                           for keyword in ["콜라", "사이다", "탄산"]):
+                        keyword_bonus = 2.0
+                
+                # 크림/소스 관련 키워드 (모든 카테고리)
+                if any(keyword in other_name or keyword in other_desc 
+                       for keyword in ["크림", "소스", "베이컨", "계란", "치즈"]):
+                    keyword_bonus = max(keyword_bonus, 1.5)
+                
+                # 최종 보너스 계산
+                final_bonus = category_bonus * keyword_bonus
+                adjusted_similarity = similarity * final_bonus
+                
+                # 매우 낮은 임계값으로 모든 메뉴 포함 (본인 제외)
+                if adjusted_similarity > 0.05 and other_menu["menu_name"] != menu_name:
                     similar_menus.append({
                         "menu_name": other_menu["menu_name"],
                         "embedding_similarity": round(adjusted_similarity, 3),
-                        "similarity_type": "embedding",
-                        "category": other_menu.get("category", "")
+                        "similarity_type": "forced_similarity",
+                        "category": other_menu.get("category", ""),
+                        "category_bonus": category_bonus,
+                        "keyword_bonus": keyword_bonus
                     })
+        
+        # 최종 정렬 및 선택
+        similar_menus.sort(key=lambda x: x["embedding_similarity"], reverse=True)
+        related_list = similar_menus[:5]  # 최대 5개
+        
+        # 연관메뉴가 여전히 없으면 랜덤하게 추가
+        if not related_list:
+            print("⚠️ 연관메뉴가 없어 랜덤 메뉴 추가")
+            all_menus = [hit["_source"]["menu_name"] for hit in resp["hits"]["hits"]]
+            for other_menu_name in all_menus[:3]:
+                related_list.append({
+                    "menu_name": other_menu_name,
+                    "embedding_similarity": 0.5,
+                    "similarity_type": "random_fallback",
+                    "category": "N/A"
+                })
+        
+        print(f"🔍 강제 추천 연관메뉴 {len(related_list)}개 생성")
+        for item in related_list:
+            bonus_info = ""
+            if item.get("category_bonus", 1.0) > 1.0:
+                bonus_info += f" 카테고리보너스:{item['category_bonus']}x"
+            if item.get("keyword_bonus", 1.0) > 1.0:
+                bonus_info += f" 키워드보너스:{item['keyword_bonus']}x"
             
-            # 유사도 순으로 정렬하고 상위 5개 선택
-            similar_menus.sort(key=lambda x: x["embedding_similarity"], reverse=True)
-            related_list = similar_menus[:5]
-            
-            print(f"🔍 임베딩 유사도 기반 연관메뉴 {len(related_list)}개 생성")
-            for item in related_list:
-                print(f"   - {item['menu_name']} (유사도: {item['embedding_similarity']})")
+            print(f"   - {item['menu_name']} (유사도: {item['embedding_similarity']}{bonus_info}, 타입: {item['similarity_type']})")
 
     # ✅ 7. OpenSearch에 저장 (가중치 필드 포함)
     doc = {
